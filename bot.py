@@ -175,33 +175,38 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         # Progress callback
-        last_update_time = [0]
         success_count = [0]
         failed_count = [0]
 
         async def on_progress(index, total_acc, email, status, detail):
             if status == "success":
                 success_count[0] += 1
+                emoji = "✅"
             else:
                 failed_count[0] += 1
+                emoji = "❌"
 
-            # Update status message setiap 3 akun atau akun terakhir
-            now = asyncio.get_event_loop().time()
-            if index == total_acc or index % 3 == 0 or (now - last_update_time[0]) > 5:
-                last_update_time[0] = now
-                emoji = "✅" if status == "success" else "❌"
-                try:
-                    await status_msg.edit_text(
-                        f"🔄 <b>Sedang mengecek...</b>\n"
-                        f"📊 Progress: <b>{index}/{total_acc}</b>\n"
-                        f"✅ Sukses: <b>{success_count[0]}</b>\n"
-                        f"❌ Gagal: <b>{failed_count[0]}</b>\n\n"
-                        f"🔍 Terakhir: {emoji} <code>{email}</code>\n"
-                        f"📝 {detail}",
-                        parse_mode="HTML",
-                    )
-                except Exception:
-                    pass
+            # Kirim hasil per akun satu-satu ke user
+            try:
+                await message.reply_text(
+                    f"{emoji} [{index}/{total_acc}] <code>{email}</code>\n"
+                    f"📝 {detail}",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
+
+            # Update status message summary
+            try:
+                await status_msg.edit_text(
+                    f"🔄 <b>Sedang mengecek...</b>\n"
+                    f"📊 Progress: <b>{index}/{total_acc}</b>\n"
+                    f"✅ Sukses: <b>{success_count[0]}</b>\n"
+                    f"❌ Gagal: <b>{failed_count[0]}</b>",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
 
         # Jalankan checker
         success_list, failed_list = await check_accounts(accounts, on_progress)
