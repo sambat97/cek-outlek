@@ -202,40 +202,67 @@ async def check_accounts(accounts, progress_callback=None):
     total = len(accounts)
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[
-                "--no-sandbox",
-                "--disable-blink-features=AutomationControlled",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--single-process",
-            ]
-        )
+        browser = None
+
+        async def launch_browser():
+            return await p.chromium.launch(
+                headless=True,
+                args=[
+                    "--no-sandbox",
+                    "--disable-blink-features=AutomationControlled",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                ]
+            )
+
+        browser = await launch_browser()
 
         for i, (email, password) in enumerate(accounts, 1):
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                viewport={"width": 1280, "height": 720},
-                locale="en-US",
-            )
-            page = await context.new_page()
+            # Cek apakah browser masih hidup, kalau mati restart
+            try:
+                if not browser.is_connected():
+                    browser = await launch_browser()
+            except Exception:
+                browser = await launch_browser()
 
-            status, detail = await check_single_account(page, email, password)
+            try:
+                context = await browser.new_context(
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    viewport={"width": 1280, "height": 720},
+                    locale="en-US",
+                )
+                page = await context.new_page()
 
-            if status == "success":
-                success_list.append(f"{email}:{password}")
-            else:
-                failed_list.append(f"{email}:{password} | {detail}")
+                status, detail = await check_single_account(page, email, password)
 
-            if progress_callback:
-                await progress_callback(i, total, email, status, detail)
+                if status == "success":
+                    success_list.append(f"{email}:{password}")
+                else:
+                    failed_list.append(f"{email}:{password} | {detail}")
 
-            await context.close()
+                if progress_callback:
+                    await progress_callback(i, total, email, status, detail)
+
+                await context.close()
+
+            except Exception as e:
+                # Browser crash — restart dan laporkan error
+                err_msg = str(e).split('\n')[0][:80]
+                failed_list.append(f"{email}:{password} | Browser error: {err_msg}")
+                if progress_callback:
+                    await progress_callback(i, total, email, "failed", f"Browser error: {err_msg}")
+                try:
+                    browser = await launch_browser()
+                except Exception:
+                    pass
 
             if i < total:
                 await asyncio.sleep(1)
 
-        await browser.close()
+        try:
+            await browser.close()
+        except Exception:
+            pass
 
     return success_list, failed_list
+
